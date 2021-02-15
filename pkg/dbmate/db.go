@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -41,6 +42,7 @@ type DB struct {
 	WaitBefore          bool
 	WaitInterval        time.Duration
 	WaitTimeout         time.Duration
+	FS                  fs.FS
 }
 
 // migrationFileRegexp pattern for valid migration files
@@ -63,6 +65,7 @@ func New(databaseURL *url.URL) *DB {
 		WaitBefore:          false,
 		WaitInterval:        DefaultWaitInterval,
 		WaitTimeout:         DefaultWaitTimeout,
+		//FS: os.DirFS("."),
 	}
 }
 
@@ -311,7 +314,7 @@ func (db *DB) Migrate() error {
 }
 
 func (db *DB) migrate(drv Driver) error {
-	files, err := findMigrationFiles(db.MigrationsDir, migrationFileRegexp)
+	files, err := findMigrationFiles(db.FS, db.MigrationsDir, migrationFileRegexp)
 	if err != nil {
 		return err
 	}
@@ -347,7 +350,7 @@ func (db *DB) migrate(drv Driver) error {
 
 		fmt.Printf("Applying: %s\n", filename)
 
-		up, _, err := parseMigration(filepath.Join(db.MigrationsDir, filename))
+		up, _, err := parseMigration(db.FS, filepath.Join(db.MigrationsDir, filename))
 		if err != nil {
 			return err
 		}
@@ -397,8 +400,8 @@ func printVerbose(result sql.Result) {
 	}
 }
 
-func findMigrationFiles(dir string, re *regexp.Regexp) ([]string, error) {
-	files, err := ioutil.ReadDir(dir)
+func findMigrationFiles(f fs.FS, dir string, re *regexp.Regexp) ([]string, error) {
+	files, err := fs.ReadDir(f, dir)
 	if err != nil {
 		return nil, fmt.Errorf("could not find migrations directory `%s`", dir)
 	}
@@ -422,7 +425,7 @@ func findMigrationFiles(dir string, re *regexp.Regexp) ([]string, error) {
 	return matches, nil
 }
 
-func findMigrationFile(dir string, ver string) (string, error) {
+func findMigrationFile(f fs.FS, dir string, ver string) (string, error) {
 	if ver == "" {
 		panic("migration version is required")
 	}
@@ -430,7 +433,7 @@ func findMigrationFile(dir string, ver string) (string, error) {
 	ver = regexp.QuoteMeta(ver)
 	re := regexp.MustCompile(fmt.Sprintf(`^%s.*\.sql$`, ver))
 
-	files, err := findMigrationFiles(dir, re)
+	files, err := findMigrationFiles(f, dir, re)
 	if err != nil {
 		return "", err
 	}
@@ -480,14 +483,14 @@ func (db *DB) Rollback() error {
 		return fmt.Errorf("can't rollback: no migrations have been applied")
 	}
 
-	filename, err := findMigrationFile(db.MigrationsDir, latest)
+	filename, err := findMigrationFile(db.FS, db.MigrationsDir, latest)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Rolling back: %s\n", filename)
 
-	_, down, err := parseMigration(filepath.Join(db.MigrationsDir, filename))
+	_, down, err := parseMigration(db.FS, filepath.Join(db.MigrationsDir, filename))
 	if err != nil {
 		return err
 	}
@@ -564,7 +567,7 @@ func (db *DB) Status(quiet bool) (int, error) {
 
 // CheckMigrationsStatus returns the status of all available mgirations
 func (db *DB) CheckMigrationsStatus(drv Driver) ([]StatusResult, error) {
-	files, err := findMigrationFiles(db.MigrationsDir, migrationFileRegexp)
+	files, err := findMigrationFiles(db.FS, db.MigrationsDir, migrationFileRegexp)
 	if err != nil {
 		return nil, err
 	}

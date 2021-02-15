@@ -2,7 +2,7 @@ package dbmate
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io/fs"
 	"regexp"
 	"strings"
 )
@@ -32,8 +32,8 @@ func NewMigration() Migration {
 }
 
 // parseMigration reads a migration file and returns (up Migration, down Migration, error)
-func parseMigration(path string) (Migration, Migration, error) {
-	data, err := ioutil.ReadFile(path)
+func parseMigration(f fs.FS, path string) (Migration, Migration, error) {
+	data, err := fs.ReadFile(f, path)
 	if err != nil {
 		return NewMigration(), NewMigration(), err
 	}
